@@ -1,5 +1,3 @@
-const https = require('https');
-
 exports.handler = async (event, context) => {
     // Set CORS headers
     const headers = {
@@ -34,18 +32,15 @@ exports.handler = async (event, context) => {
 
         console.log(`Health check: Checking ${targetUrl}, action: ${action || 'health'}`);
 
-        // Create HTTPS agent that ignores self-signed certificates
-        const httpsAgent = new https.Agent({
-            rejectUnauthorized: false
-        });
+        // Disable SSL certificate validation for self-signed certificates
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
         // If action is 'config', try to fetch configuration directly
         if (action === 'config') {
             try {
                 const configResponse = await fetch(`${targetUrl}/api/health-and-config`, {
                     method: 'GET',
-                    timeout: 8000,
-                    agent: httpsAgent
+                    timeout: 8000
                 });
 
                 if (configResponse.ok) {
@@ -90,8 +85,7 @@ exports.handler = async (event, context) => {
         try {
             const healthResponse = await fetch(`${targetUrl}/health`, {
                 method: 'GET',
-                timeout: 5000,
-                agent: httpsAgent
+                timeout: 5000
             });
 
             if (healthResponse.ok) {
@@ -114,8 +108,7 @@ exports.handler = async (event, context) => {
         try {
             const mainResponse = await fetch(`${targetUrl}/`, {
                 method: 'HEAD',
-                timeout: 3000,
-                agent: httpsAgent
+                timeout: 3000
             });
 
             // Accept both 200 OK and 401 Unauthorized (auth required is still online)
