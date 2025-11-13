@@ -5,8 +5,8 @@ class AIRadioClient {
     constructor() {
         // Configuration for multiple radio servers
         this.radioServers = [
-            { id: 'redfox', name: "RedFox", url: "http://77.77.134.134:81", defaultChannel: "red" },
-            { id: 'mdae', name: "Mdae", url: "http://46.10.144.87:81", defaultChannel: "blue" }
+            { id: 'redfox', name: "RedFox", url: "https://77.77.134.134:443", defaultChannel: "red" },
+            { id: 'mdae', name: "Mdae", url: "https://46.10.144.87:443", defaultChannel: "blue" }
         ];
 
         // Current server selection (will be set when user selects a server)
@@ -175,38 +175,70 @@ class AIRadioClient {
             // Show checking status
             this.showServerStatusForServer(server.id, '🔄 Проверка на сървъра...', 'checking');
 
-            // Use Netlify proxy to avoid CORS issues
-            const response = await fetch(`/.netlify/functions/health-check?targetUrl=${encodeURIComponent(server.url)}`, {
-                method: 'GET',
-                signal: AbortSignal.timeout(15000) // 15 second timeout for proxy
-            });
+            // Try HTTPS first (port 443), then fallback to HTTP (port 81)
+            let workingUrl = null;
+            let startupConfig = null;
 
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+            // Extract base IP from server URL
+            const urlMatch = server.url.match(/https?:\/\/([^:]+):(\d+)/);
+            if (!urlMatch) {
+                throw new Error('Invalid server URL format');
+            }
+            const baseIp = urlMatch[1];
+
+            // Try HTTPS first - direct API call from browser
+            try {
+                const httpsUrl = `https://${baseIp}:443`;
+                console.log(`Trying HTTPS for ${server.name}: ${httpsUrl}`);
+
+                // Try to get configuration directly via HTTPS
+                const configResponse = await fetch(`${httpsUrl}/api/health-and-config`, {
+                    method: 'GET',
+                    signal: AbortSignal.timeout(8000),
+                    mode: 'cors' // Explicitly set CORS mode
+                });
+
+                if (configResponse.ok) {
+                    startupConfig = await configResponse.json();
+                    workingUrl = httpsUrl;
+                    console.log(`✅ ${server.name} works on HTTPS`);
+                }
+            } catch (httpsError) {
+                console.log(`HTTPS failed for ${server.name}, trying HTTP...`, httpsError.message);
             }
 
-            const healthData = await response.json();
-
-            if (healthData.status === 'online') {
-                // Server is online - now get configuration
+            // If HTTPS didn't work, try HTTP
+            if (!workingUrl) {
                 try {
-                    const configResponse = await fetch(`${server.url}/api/health-and-config`, {
+                    const httpUrl = `http://${baseIp}:81`;
+                    console.log(`Trying HTTP for ${server.name}: ${httpUrl}`);
+
+                    // Try to get configuration directly via HTTP
+                    const configResponse = await fetch(`${httpUrl}/api/health-and-config`, {
                         method: 'GET',
-                        signal: AbortSignal.timeout(10000)
+                        signal: AbortSignal.timeout(8000),
+                        mode: 'cors' // Explicitly set CORS mode
                     });
 
                     if (configResponse.ok) {
-                        const startupConfig = await configResponse.json();
-                        this.showServerStatusForServer(server.id, `✅ ${server.name} сървърът е онлайн и конфигуриран`, 'online');
-                        this.renderChannelButtonsForServer(server.id, startupConfig);
-                    } else {
-                        this.showServerStatusForServer(server.id, `✅ ${server.name} сървърът е онлайн`, 'online');
+                        startupConfig = await configResponse.json();
+                        workingUrl = httpUrl;
+                        console.log(`✅ ${server.name} works on HTTP`);
                     }
-                } catch (configError) {
-                    console.warn(`Config fetch failed for ${server.name}:`, configError.message);
-                    // Server is online but config fetch failed - don't show status update to avoid DOM errors
-                    console.log(`Server ${server.name} is online but config fetch failed`);
+                } catch (httpError) {
+                    console.log(`HTTP also failed for ${server.name}`, httpError.message);
                 }
+            }
+
+            if (workingUrl && startupConfig) {
+                // Update server URL to the working one
+                server.url = workingUrl;
+                this.showServerStatusForServer(server.id, `✅ ${server.name} сървърът е онлайн и конфигуриран (${workingUrl.includes('https') ? 'HTTPS' : 'HTTP'})`, 'online');
+                this.renderChannelButtonsForServer(server.id, startupConfig);
+            } else if (workingUrl) {
+                // Server is online but no config
+                server.url = workingUrl;
+                this.showServerStatusForServer(server.id, `✅ ${server.name} сървърът е онлайн (${workingUrl.includes('https') ? 'HTTPS' : 'HTTP'})`, 'online');
             } else {
                 this.showServerStatusForServer(server.id, `❌ ${server.name} сървърът е недостъпен`, 'offline');
             }
@@ -398,7 +430,9 @@ class AIRadioClient {
 
             button.addEventListener('click', () => {
                 this.selectChannel(channel);
-                this.selectServer({ id: serverId, name: serverId === 'redfox' ? 'RedFox' : 'Mdae', url: serverId === 'redfox' ? 'http://77.77.134.134:81' : 'http://46.10.144.87:81', defaultChannel: channel.name });
+                // Find the server object with the working URL (updated during health check)
+                const server = this.radioServers.find(s => s.id === serverId);
+                this.selectServer(server);
                 this.startRadio();
             });
 

@@ -8,9 +8,8 @@
 [build.environment]
   # Node version for functions
   NODE_VERSION = "18"
- 
-
 # Function settings
+  
 [functions]
   # Directory containing functions
   directory = "netlify/functions"
