@@ -186,22 +186,46 @@ class AIRadioClient {
             }
             const baseIp = urlMatch[1];
 
-            // Try HTTPS first - direct API call from browser
+            // Try HTTPS first - use Netlify function as proxy to bypass certificate issues
             try {
                 const httpsUrl = `https://${baseIp}:443`;
                 console.log(`Trying HTTPS for ${server.name}: ${httpsUrl}`);
 
-                // Try to get configuration directly via HTTPS
-                const configResponse = await fetch(`${httpsUrl}/api/health-and-config`, {
+                // Use Netlify function to check health and get config
+                const healthResponse = await fetch(`/.netlify/functions/health-check?targetUrl=${encodeURIComponent(httpsUrl)}`, {
                     method: 'GET',
-                    signal: AbortSignal.timeout(8000),
-                    mode: 'cors' // Explicitly set CORS mode
+                    signal: AbortSignal.timeout(10000)
                 });
 
-                if (configResponse.ok) {
-                    startupConfig = await configResponse.json();
-                    workingUrl = httpsUrl;
-                    console.log(`✅ ${server.name} works on HTTPS`);
+                if (healthResponse.ok) {
+                    const healthData = await healthResponse.json();
+                    if (healthData.status === 'online') {
+                        // Try to get configuration via Netlify proxy
+                        try {
+                            const configResponse = await fetch(`/.netlify/functions/health-check?targetUrl=${encodeURIComponent(httpsUrl)}&action=config`, {
+                                method: 'GET',
+                                signal: AbortSignal.timeout(8000)
+                            });
+
+                            if (configResponse.ok) {
+                                const configData = await configResponse.json();
+                                if (configData.config) {
+                                    startupConfig = configData.config;
+                                    workingUrl = httpsUrl;
+                                    console.log(`✅ ${server.name} works on HTTPS with config`);
+                                } else {
+                                    workingUrl = httpsUrl;
+                                    console.log(`✅ ${server.name} works on HTTPS (no config)`);
+                                }
+                            } else {
+                                workingUrl = httpsUrl;
+                                console.log(`✅ ${server.name} works on HTTPS (config fetch failed)`);
+                            }
+                        } catch (configError) {
+                            console.warn(`HTTPS config fetch failed for ${server.name}, but server is online`);
+                            workingUrl = httpsUrl;
+                        }
+                    }
                 }
             } catch (httpsError) {
                 console.log(`HTTPS failed for ${server.name}, trying HTTP...`, httpsError.message);
@@ -213,17 +237,41 @@ class AIRadioClient {
                     const httpUrl = `http://${baseIp}:81`;
                     console.log(`Trying HTTP for ${server.name}: ${httpUrl}`);
 
-                    // Try to get configuration directly via HTTP
-                    const configResponse = await fetch(`${httpUrl}/api/health-and-config`, {
+                    // Use Netlify function to check health and get config
+                    const healthResponse = await fetch(`/.netlify/functions/health-check?targetUrl=${encodeURIComponent(httpUrl)}`, {
                         method: 'GET',
-                        signal: AbortSignal.timeout(8000),
-                        mode: 'cors' // Explicitly set CORS mode
+                        signal: AbortSignal.timeout(10000)
                     });
 
-                    if (configResponse.ok) {
-                        startupConfig = await configResponse.json();
-                        workingUrl = httpUrl;
-                        console.log(`✅ ${server.name} works on HTTP`);
+                    if (healthResponse.ok) {
+                        const healthData = await healthResponse.json();
+                        if (healthData.status === 'online') {
+                            // Try to get configuration via Netlify proxy
+                            try {
+                                const configResponse = await fetch(`/.netlify/functions/health-check?targetUrl=${encodeURIComponent(httpUrl)}&action=config`, {
+                                    method: 'GET',
+                                    signal: AbortSignal.timeout(8000)
+                                });
+
+                                if (configResponse.ok) {
+                                    const configData = await configResponse.json();
+                                    if (configData.config) {
+                                        startupConfig = configData.config;
+                                        workingUrl = httpUrl;
+                                        console.log(`✅ ${server.name} works on HTTP with config`);
+                                    } else {
+                                        workingUrl = httpUrl;
+                                        console.log(`✅ ${server.name} works on HTTP (no config)`);
+                                    }
+                                } else {
+                                    workingUrl = httpUrl;
+                                    console.log(`✅ ${server.name} works on HTTP (config fetch failed)`);
+                                }
+                            } catch (configError) {
+                                console.warn(`HTTP config fetch failed for ${server.name}, but server is online`);
+                                workingUrl = httpUrl;
+                            }
+                        }
                     }
                 } catch (httpError) {
                     console.log(`HTTP also failed for ${server.name}`, httpError.message);

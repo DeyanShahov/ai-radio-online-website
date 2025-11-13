@@ -28,9 +28,56 @@ exports.handler = async (event, context) => {
     try {
         // Get target URL from query parameters, fallback to environment variable
         const targetUrl = event.queryStringParameters?.targetUrl || process.env.RADIO_SERVER_URL || 'http://localhost:81';
+        const action = event.queryStringParameters?.action; // 'config' for configuration fetch
 
-        console.log(`Health check: Checking ${targetUrl}`);
+        console.log(`Health check: Checking ${targetUrl}, action: ${action || 'health'}`);
 
+        // If action is 'config', try to fetch configuration directly
+        if (action === 'config') {
+            try {
+                const configResponse = await fetch(`${targetUrl}/api/health-and-config`, {
+                    method: 'GET',
+                    timeout: 8000
+                });
+
+                if (configResponse.ok) {
+                    const config = await configResponse.json();
+                    console.log('Config fetch: Success');
+                    return {
+                        statusCode: 200,
+                        headers,
+                        body: JSON.stringify({
+                            config: config,
+                            timestamp: new Date().toISOString()
+                        })
+                    };
+                } else {
+                    console.log(`Config fetch failed: ${configResponse.status}`);
+                    return {
+                        statusCode: 200,
+                        headers,
+                        body: JSON.stringify({
+                            config: null,
+                            error: `HTTP ${configResponse.status}`,
+                            timestamp: new Date().toISOString()
+                        })
+                    };
+                }
+            } catch (configError) {
+                console.log('Config fetch error:', configError.message);
+                return {
+                    statusCode: 200,
+                    headers,
+                    body: JSON.stringify({
+                        config: null,
+                        error: configError.message,
+                        timestamp: new Date().toISOString()
+                    })
+                };
+            }
+        }
+
+        // Default health check logic
         // Try health endpoint first
         try {
             const healthResponse = await fetch(`${targetUrl}/health`, {
