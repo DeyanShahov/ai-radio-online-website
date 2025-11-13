@@ -45,6 +45,7 @@ netlify dev
    - В Netlify Dashboard отидете на Site settings > Build & deploy > Environment variables
    - Добавете `TOKEN_SECRET` със силна, случайна стойност (минимум 32 символа)
    - **Важно:** Тази стойност трябва да е същата като в C# сървъра (`appsettings.json`)
+   - **Предупреждение:** Премахнете `TOKEN_SECRET` от `netlify.toml` преди commit в GitHub!
 
 3. **Деплойнете:**
    - Netlify автоматично ще разпознае `netlify.toml` и ще конфигурира сайта

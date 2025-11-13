@@ -1,4 +1,15 @@
 const crypto = require('crypto');
+const path = require('path');
+
+// For local development, try to load .env file if TOKEN_SECRET is not set
+if (!process.env.TOKEN_SECRET) {
+    try {
+        // Load .env file from project root (two levels up from functions directory)
+        require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+    } catch (e) {
+        console.error('Failed to load .env file:', e.message);
+    }
+}
 
 exports.handler = async (event, context) => {
     // Get the token secret from environment variables

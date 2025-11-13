@@ -3,8 +3,14 @@
 
 class AIRadioClient {
     constructor() {
-        this.radioServerUrl = 'http://localhost:81'; // Default radio server URL
-        this.defaultChannel = 'red'; // Default channel name
+        // Configuration for multiple radio servers
+        this.radioServers = [
+            { id: 'redfox', name: "RedFox", url: "http://77.77.134.134:81", defaultChannel: "red" },
+            { id: 'mdae', name: "Mdae", url: "http://46.10.144.87:81", defaultChannel: "blue" }
+        ];
+
+        // Current server selection (will be set when user selects a server)
+        this.selectedServer = null;
         this.selectedChannel = null; // Currently selected channel object
         this.selectedEndpointPath = '/'; // Currently selected endpoint path
         this.init();
@@ -27,22 +33,20 @@ class AIRadioClient {
         // Reset button states when navigating back to the page
         this.resetButtonStates();
 
-        // Perform health check on page load
-        await this.performHealthCheck();
+        // Render server sections and perform health checks
+        this.renderServerSections();
     }
 
     async startRadio() {
-        const statusMessage = document.getElementById('statusMessage');
-
         try {
-            // Disable all channel buttons and show loading
-            const channelButtons = document.querySelectorAll('.channel-button');
-            channelButtons.forEach(button => {
-                button.disabled = true;
-                button.innerHTML = button.innerHTML.replace(/<br>/g, '\n').split('\n')[0] + '<br><span class="loading"></span>Свързване...';
-            });
+            // Find and disable only the clicked button
+            const clickedButton = document.querySelector(`.channel-button[data-server-id="${this.selectedServer.id}"][data-channel-name="${this.selectedChannel.name}"]`);
+            if (clickedButton) {
+                clickedButton.disabled = true;
+                clickedButton.innerHTML = `🎧 Свързване към ${this.selectedChannel.name}...<br><span class="loading"></span>`;
+            }
 
-            this.showStatus('Получаване на оторизационен токен...', 'info');
+            this.showStatusForServer(this.selectedServer.id, 'Получаване на оторизационен токен...', 'info');
 
             // Generate anonymous user ID if needed
             const userId = this.generateUserId();
@@ -54,28 +58,32 @@ class AIRadioClient {
                 throw new Error('Неуспешно получаване на токен');
             }
 
-            this.showStatus('Токен получен успешно. Пренасочване към радиото...', 'success');
+            this.showStatusForServer(this.selectedServer.id, 'Токен получен успешно. Пренасочване към радиото...', 'success');
 
             // Construct radio server URL with authentication parameters
             const radioUrl = this.constructRadioUrl(authData);
 
-            // Small delay for user feedback
+            // Small delay for user feedback, then redirect
             setTimeout(() => {
+                // Hide status message before redirect
+                const statusMessage = document.getElementById(`statusMessage-${this.selectedServer.id}`);
+                if (statusMessage) {
+                    statusMessage.style.display = 'none';
+                }
                 window.location.href = radioUrl;
-            }, 1000);
+            }, 1500);
 
         } catch (error) {
             console.error('Error starting radio:', error);
-            this.showError('Грешка при стартиране на радиото: ' + error.message);
+            this.showErrorForServer(this.selectedServer.id, 'Грешка при стартиране на радиото: ' + error.message);
 
-            // Re-enable all channel buttons
-            const channelButtons = document.querySelectorAll('.channel-button');
-            channelButtons.forEach(button => {
-                button.disabled = false;
-                // Restore original button text (remove loading spinner)
-                const originalText = button.innerHTML.replace(/<br><span class="loading"><\/span>Свързване\.\.\./, '');
-                button.innerHTML = originalText;
-            });
+            // Re-enable only the clicked button
+            const clickedButton = document.querySelector(`.channel-button[data-server-id="${this.selectedServer.id}"][data-channel-name="${this.selectedChannel.name}"]`);
+            if (clickedButton) {
+                clickedButton.disabled = false;
+                // Restore original button text
+                clickedButton.innerHTML = `🎧 Стартирай ${this.selectedChannel.name} Радио`;
+            }
         }
     }
 
@@ -97,15 +105,121 @@ class AIRadioClient {
     }
 
     constructRadioUrl(authData) {
-        const baseUrl = this.radioServerUrl + this.selectedEndpointPath;
+        const baseUrl = this.selectedServer.url + this.selectedEndpointPath;
         const params = new URLSearchParams({
-            channel: this.defaultChannel,
+            channel: this.selectedServer.defaultChannel,
             token: authData.token,
             user: authData.user,
             expiry: authData.expiry
         });
 
         return `${baseUrl}?${params.toString()}`;
+    }
+
+    renderServerSections() {
+        const container = document.getElementById('radioServersContainer');
+        if (!container) return;
+
+        // Clear existing content
+        container.innerHTML = '';
+
+        // Create sections for each server
+        this.radioServers.forEach(server => {
+            const serverSection = document.createElement('div');
+            serverSection.className = 'server-section';
+            serverSection.setAttribute('data-server-id', server.id);
+
+            serverSection.innerHTML = `
+                <h2>${server.name}</h2>
+                <div class="radio-interface">
+                    <div class="status-message" id="statusMessage-${server.id}" style="display: none;">
+                        Готов за стартиране на ${server.name} радиото
+                    </div>
+
+                    <div class="server-status" id="serverStatus-${server.id}">
+                        🔄 Проверка на сървъра...
+                    </div>
+
+                    <button id="startRadioBtn-${server.id}" class="start-button" data-server-id="${server.id}" style="display: none;">
+                        🎧 Стартирай Радио
+                    </button>
+
+                    <div class="channel-info" id="channelInfo-${server.id}" style="display: none;">
+                        <p>Ще бъдете пренасочени към канал: ${server.defaultChannel}</p>
+                    </div>
+
+                    <div id="channelButtonsContainer-${server.id}" class="channel-buttons-container" style="display: none;">
+                        <h3>Изберете канал:</h3>
+                    </div>
+                </div>
+            `;
+
+            container.appendChild(serverSection);
+
+            // Add event listener to the start button
+            const startButton = serverSection.querySelector(`#startRadioBtn-${server.id}`);
+            startButton.addEventListener('click', () => {
+                this.selectServer(server);
+                this.startRadio();
+            });
+
+            // Perform health check for this server after DOM is ready
+            setTimeout(() => {
+                this.performHealthCheckForServer(server);
+            }, 100);
+        });
+    }
+
+    async performHealthCheckForServer(server) {
+        try {
+            // Show checking status
+            this.showServerStatusForServer(server.id, '🔄 Проверка на сървъра...', 'checking');
+
+            // Use Netlify proxy to avoid CORS issues
+            const response = await fetch(`/.netlify/functions/health-check?targetUrl=${encodeURIComponent(server.url)}`, {
+                method: 'GET',
+                signal: AbortSignal.timeout(15000) // 15 second timeout for proxy
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const healthData = await response.json();
+
+            if (healthData.status === 'online') {
+                // Server is online - now get configuration
+                try {
+                    const configResponse = await fetch(`${server.url}/api/health-and-config`, {
+                        method: 'GET',
+                        signal: AbortSignal.timeout(10000)
+                    });
+
+                    if (configResponse.ok) {
+                        const startupConfig = await configResponse.json();
+                        this.showServerStatusForServer(server.id, `✅ ${server.name} сървърът е онлайн и конфигуриран`, 'online');
+                        this.renderChannelButtonsForServer(server.id, startupConfig);
+                    } else {
+                        this.showServerStatusForServer(server.id, `✅ ${server.name} сървърът е онлайн`, 'online');
+                    }
+                } catch (configError) {
+                    console.warn(`Config fetch failed for ${server.name}:`, configError.message);
+                    // Server is online but config fetch failed - don't show status update to avoid DOM errors
+                    console.log(`Server ${server.name} is online but config fetch failed`);
+                }
+            } else {
+                this.showServerStatusForServer(server.id, `❌ ${server.name} сървърът е недостъпен`, 'offline');
+            }
+
+        } catch (error) {
+            console.warn(`Health check failed for ${server.name}:`, error.message);
+            this.showServerStatusForServer(server.id, `❌ ${server.name} сървърът е недостъпен`, 'offline');
+        }
+    }
+
+    selectServer(server) {
+        this.selectedServer = server;
+        console.log(`Selected server: ${server.name}`);
     }
 
     async performHealthCheck() {
@@ -135,70 +249,69 @@ class AIRadioClient {
         }
     }
 
-    renderChannelButtons(startupConfig) {
-        const container = document.getElementById('channelButtonsContainer');
-        if (!container || !startupConfig || !startupConfig.channels) {
-            return;
-        }
+    // renderChannelButtons(startupConfig) {
+    //     const container = document.getElementById('channelButtonsContainer');
+    //     if (!container || !startupConfig || !startupConfig.channels) {
+    //         return;
+    //     }
 
-        // Clear existing buttons
-        const buttonsContainer = container.querySelector('.channel-buttons') || document.createElement('div');
-        buttonsContainer.className = 'channel-buttons';
-        buttonsContainer.innerHTML = '';
+    //     // Clear existing buttons
+    //     const buttonsContainer = container.querySelector('.channel-buttons') || document.createElement('div');
+    //     buttonsContainer.className = 'channel-buttons';
+    //     buttonsContainer.innerHTML = '';
 
-        // Create buttons for each channel
-        startupConfig.channels.forEach(channel => {
-            const button = document.createElement('button');
-            button.className = 'channel-button';
-            button.setAttribute('data-channel-name', channel.name);
-            button.setAttribute('data-endpoint-path', channel.endpointPath);
+    //     // Create buttons for each channel
+    //     startupConfig.channels.forEach(channel => {
+    //         const button = document.createElement('button');
+    //         button.className = 'channel-button';
+    //         button.setAttribute('data-channel-name', channel.name);
+    //         button.setAttribute('data-endpoint-path', channel.endpointPath);
 
-            // Build button text with channel information
-            let buttonText = `${channel.name}\n`;
-            buttonText += `Продължителност: ${channel.trackDurationSeconds} сек\n`;
-            buttonText += `Може да се заявява: ${channel.isRequestChannel ? 'Да' : 'Не'}`;
+    //         // Build button text with channel information
+    //         let buttonText = `Име / Стил на канала: ${channel.name}\n`;
+    //         buttonText += `Продължителност на песните: ${channel.trackDurationSeconds} сек\n`;
+    //         buttonText += `Може да се правят заявки: ${channel.isRequestChannel ? 'Да' : 'Не'}`;
 
-            if (channel.preferredStyles && channel.preferredStyles.length > 0) {
-                buttonText += `\nСтилове: ${channel.preferredStyles.join(', ')}`;
-            }
+    //         if (channel.preferredStyles && channel.preferredStyles.length > 0) {
+    //             buttonText += `\nСтилове: ${channel.preferredStyles.join(', ')}`;
+    //         }
 
-            const fullButtonText = buttonText.replace(/\n/g, '<br>');
-            button.innerHTML = fullButtonText;
+    //         const fullButtonText = buttonText.replace(/\n/g, '<br>');
+    //         button.innerHTML = fullButtonText;
 
-            // Store the original full text for later restoration
-            button.setAttribute('data-original-text', fullButtonText);
+    //         // Store the original full text for later restoration
+    //         button.setAttribute('data-original-text', fullButtonText);
 
-            button.addEventListener('click', () => {
-                this.selectChannel(channel);
-                this.startRadio();
-            });
+    //         button.addEventListener('click', () => {
+    //             this.selectChannel(channel);
+    //             this.startRadio();
+    //         });
 
-            buttonsContainer.appendChild(button);
-        });
+    //         buttonsContainer.appendChild(button);
+    //     });
 
-        // Add buttons container to the main container
-        if (!container.contains(buttonsContainer)) {
-            container.appendChild(buttonsContainer);
-        }
+    //     // Add buttons container to the main container
+    //     if (!container.contains(buttonsContainer)) {
+    //         container.appendChild(buttonsContainer);
+    //     }
 
-        // Show the container and hide the original start button and channel info
-        container.style.display = 'block';
-        const startButton = document.getElementById('startRadioBtn');
-        const channelInfo = document.querySelector('.channel-info');
-        if (startButton) startButton.style.display = 'none';
-        if (channelInfo) channelInfo.style.display = 'none';
+    //     // Show the container and hide the original start button and channel info
+    //     container.style.display = 'block';
+    //     const startButton = document.getElementById('startRadioBtn');
+    //     const channelInfo = document.querySelector('.channel-info');
+    //     if (startButton) startButton.style.display = 'none';
+    //     if (channelInfo) channelInfo.style.display = 'none';
 
-        // Auto-select the first channel as default
-        if (startupConfig.channels.length > 0) {
-            this.selectChannel(startupConfig.channels[0]);
-        }
-    }
+    //     // Auto-select the first channel as default
+    //     if (startupConfig.channels.length > 0) {
+    //         this.selectChannel(startupConfig.channels[0]);
+    //     }
+    // }
 
     selectChannel(channel) {
         // Update selected channel properties
         this.selectedChannel = channel;
         this.selectedEndpointPath = channel.endpointPath;
-        this.defaultChannel = channel.name;
 
         // Update visual state of buttons
         const buttons = document.querySelectorAll('.channel-button');
@@ -210,8 +323,8 @@ class AIRadioClient {
             }
         });
 
-        // Update status message
-        this.showStatus(`Избран канал: ${channel.name}`, 'info');
+        // Status messages are now handled per-server during radio start
+        console.log(`Selected channel: ${channel.name}`);
     }
 
     generateUserId() {
@@ -220,6 +333,95 @@ class AIRadioClient {
         const timestamp = Date.now();
         const random = Math.random().toString(36).substring(2, 15);
         return `anon_${timestamp}_${random}`;
+    }
+
+    showServerStatusForServer(serverId, message, status) {
+        const serverStatusElement = document.getElementById(`serverStatus-${serverId}`);
+        if (serverStatusElement) {
+            serverStatusElement.textContent = message;
+            serverStatusElement.className = 'server-status';
+
+            // Add status-specific styling
+            if (status === 'online') {
+                serverStatusElement.classList.add('online');
+            } else if (status === 'offline') {
+                serverStatusElement.classList.add('offline');
+            } else if (status === 'checking') {
+                serverStatusElement.classList.add('checking');
+            }
+        } else {
+            // If element doesn't exist, try again after a short delay
+            setTimeout(() => {
+                this.showServerStatusForServer(serverId, message, status);
+            }, 50);
+        }
+    }
+
+    renderChannelButtonsForServer(serverId, startupConfig) {
+        const container = document.getElementById(`channelButtonsContainer-${serverId}`);
+        if (!container || !startupConfig || !startupConfig.channels) {
+            return;
+        }
+
+        // Clear existing buttons
+        const buttonsContainer = container.querySelector('.channel-buttons') || document.createElement('div');
+        buttonsContainer.className = 'channel-buttons';
+        buttonsContainer.innerHTML = '';
+
+        // Create buttons for each channel
+        startupConfig.channels.forEach(channel => {
+            const channelDiv = document.createElement('div');
+            channelDiv.className = 'channel-item';
+
+            // Create the colored button
+            const button = document.createElement('button');
+            button.className = 'channel-button';
+            button.setAttribute('data-channel-name', channel.name);
+            button.setAttribute('data-endpoint-path', channel.endpointPath);
+            button.setAttribute('data-server-id', serverId);
+
+            button.innerHTML = `🎧 Стартирай ${channel.name} Радио`;
+
+            // Create the info panel
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'channel-info-panel';
+
+            let infoText = `Канал / Стил: ${channel.name}\n`;
+            infoText += `Продължителност на песните: ${channel.trackDurationSeconds} сек\n`;
+            infoText += `Възможност за заявки: ${channel.isRequestChannel ? 'Да' : 'Не'}`;
+
+            if (channel.preferredStyles && channel.preferredStyles.length > 0) {
+                infoText += `\nАвтоматично зададени стилове: ${channel.preferredStyles.join(', ')}`;
+            }
+
+            infoDiv.innerHTML = `<p>${infoText.replace(/\n/g, '<br>')}</p>`;
+
+            button.addEventListener('click', () => {
+                this.selectChannel(channel);
+                this.selectServer({ id: serverId, name: serverId === 'redfox' ? 'RedFox' : 'Mdae', url: serverId === 'redfox' ? 'http://77.77.134.134:81' : 'http://46.10.144.87:81', defaultChannel: channel.name });
+                this.startRadio();
+            });
+
+            channelDiv.appendChild(button);
+            channelDiv.appendChild(infoDiv);
+            buttonsContainer.appendChild(channelDiv);
+        });
+
+        // Add buttons container to the main container
+        if (!container.contains(buttonsContainer)) {
+            container.appendChild(buttonsContainer);
+        }
+
+        // Show the container
+        container.style.display = 'block';
+
+        // Auto-select the first channel as default
+        if (startupConfig.channels.length > 0) {
+            this.selectChannel(startupConfig.channels[0]);
+        }
+
+        // Ensure buttons start in clean state
+        this.resetButtonStates();
     }
 
     showServerStatus(message, status) {
@@ -237,6 +439,26 @@ class AIRadioClient {
                 serverStatusElement.classList.add('checking');
             }
         }
+    }
+
+    showStatusForServer(serverId, message, type = 'info') {
+        const statusMessage = document.getElementById(`statusMessage-${serverId}`);
+        if (statusMessage) {
+            statusMessage.textContent = message;
+            statusMessage.className = 'status-message';
+            statusMessage.style.display = 'block'; // Make sure it's visible
+
+            // Add type-specific styling
+            if (type === 'error') {
+                statusMessage.classList.add('error');
+            } else if (type === 'success') {
+                statusMessage.classList.add('success');
+            }
+        }
+    }
+
+    showErrorForServer(serverId, message) {
+        this.showStatusForServer(serverId, message, 'error');
     }
 
     showStatus(message, type = 'info') {
@@ -261,10 +483,16 @@ class AIRadioClient {
         const channelButtons = document.querySelectorAll('.channel-button');
         channelButtons.forEach(button => {
             button.disabled = false;
-            // Restore the original full button text
+            // Restore the original button text (without loading spinner)
             const originalText = button.getAttribute('data-original-text');
             if (originalText) {
                 button.innerHTML = originalText;
+            } else {
+                // If no original text stored, reconstruct from channel name
+                const channelName = button.getAttribute('data-channel-name');
+                if (channelName) {
+                    button.innerHTML = `🎧 Стартирай ${channelName} Радио`;
+                }
             }
         });
     }
@@ -281,8 +509,12 @@ document.addEventListener('DOMContentLoaded', () => {
 // Handle page navigation (including back button)
 window.addEventListener('pageshow', (event) => {
     // Reset button states when navigating back to the page
+    // Use multiple attempts since buttons might not be created yet
     if (radioClient) {
         radioClient.resetButtonStates();
+        // Also reset after a short delay in case buttons are still loading
+        setTimeout(() => radioClient.resetButtonStates(), 500);
+        setTimeout(() => radioClient.resetButtonStates(), 1500);
     }
 });
 

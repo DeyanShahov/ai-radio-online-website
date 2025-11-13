@@ -26,14 +26,14 @@ exports.handler = async (event, context) => {
     }
 
     try {
-        // AI Radio server URL - can be configured via environment variable
-        const radioServerUrl = process.env.RADIO_SERVER_URL || 'http://localhost:81';
+        // Get target URL from query parameters, fallback to environment variable
+        const targetUrl = event.queryStringParameters?.targetUrl || process.env.RADIO_SERVER_URL || 'http://localhost:81';
 
-        console.log(`Health check: Checking ${radioServerUrl}`);
+        console.log(`Health check: Checking ${targetUrl}`);
 
         // Try health endpoint first
         try {
-            const healthResponse = await fetch(`${radioServerUrl}/health`, {
+            const healthResponse = await fetch(`${targetUrl}/health`, {
                 method: 'GET',
                 timeout: 5000
             });
@@ -56,7 +56,7 @@ exports.handler = async (event, context) => {
 
         // Fallback: Try main page with HEAD request
         try {
-            const mainResponse = await fetch(`${radioServerUrl}/`, {
+            const mainResponse = await fetch(`${targetUrl}/`, {
                 method: 'HEAD',
                 timeout: 3000
             });
