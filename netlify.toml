@@ -8,6 +8,8 @@
 [build.environment]
   # Node version for functions
   NODE_VERSION = "18"
+  # Radio server URL for health checks
+  RADIO_SERVER_URL = "http://localhost:81"
 
 # Function settings
 [functions]
